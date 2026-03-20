@@ -45,10 +45,12 @@ def test_gpu_processes(mock_run):
     ])
 
 
-@patch("lab.commands.gpu.subprocess.run")
-def test_gpu_free(mock_run):
-    mock_run.return_value.stdout = "0, NVIDIA A100, 1000, 40000, 39000\n1, NVIDIA A100, 20000, 40000, 20000\n"
-    mock_run.return_value.returncode = 0
+@patch("lab.commands.gpu.get_gpu_info")
+def test_gpu_free(mock_info):
+    mock_info.return_value = [
+        {"index": "0", "name": "NVIDIA A100", "used": 1000, "total": 40000, "free": 39000},
+        {"index": "1", "name": "NVIDIA A100", "used": 20000, "total": 40000, "free": 20000},
+    ]
     runner = CliRunner()
     result = runner.invoke(cli, ["gpu", "free"])
     assert result.exit_code == 0

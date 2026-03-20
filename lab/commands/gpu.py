@@ -1,10 +1,8 @@
 """GPU monitoring commands."""
 
-import subprocess
-
 import click
 
-from lab.utils import run_command, show_command
+from lab.utils import run_command, get_gpu_info
 
 
 @click.group()
@@ -37,30 +35,17 @@ def processes():
 @gpu.command()
 def free():
     """Show which GPUs have free memory."""
-    try:
-        result = subprocess.run(
-            [
-                "nvidia-smi",
-                "--query-gpu=index,name,memory.used,memory.total,memory.free",
-                "--format=csv,noheader,nounits",
-            ],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-    except (subprocess.CalledProcessError, FileNotFoundError):
+    gpus = get_gpu_info()
+    if not gpus:
         click.secho("Could not query GPUs (is nvidia-smi available?)", fg="red")
         return
 
     click.secho("\nGPU Free Memory:\n", fg="cyan", bold=True)
-    for line in result.stdout.strip().split("\n"):
-        parts = [p.strip() for p in line.split(",")]
-        if len(parts) == 5:
-            idx, name, used, total, free_mb = parts
-            pct_free = float(free_mb) / float(total) * 100 if float(total) > 0 else 0
-            color = "green" if pct_free > 50 else "yellow" if pct_free > 10 else "red"
-            click.secho(
-                f"  GPU {idx} ({name}): {free_mb} MiB free / {total} MiB total ({pct_free:.0f}%)",
-                fg=color,
-            )
+    for g in gpus:
+        pct_free = g["free"] / g["total"] * 100 if g["total"] > 0 else 0
+        color = "green" if pct_free > 50 else "yellow" if pct_free > 10 else "red"
+        click.secho(
+            f"  GPU {g['index']} ({g['name']}): {g['free']} MiB free / {g['total']} MiB total ({pct_free:.0f}%)",
+            fg=color,
+        )
     click.echo()
