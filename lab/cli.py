@@ -12,6 +12,7 @@ from lab.commands.run import run
 from lab.commands.env import env
 from lab.commands.disk import disk
 from lab.commands.model import model
+from lab.commands.setup import setup
 
 
 @click.group()
@@ -28,6 +29,7 @@ cli.add_command(run)
 cli.add_command(env)
 cli.add_command(disk)
 cli.add_command(model)
+cli.add_command(setup)
 
 
 def _detect_model(port):
@@ -187,6 +189,7 @@ def help_cmd():
         "model": "Model operations (download, serve, run, stop, check)",
         "ask": "Ask a one-off question to your running model",
         "chat": "Interactive conversation with your running model",
+        "setup": "Check/create vLLM environment",
     }
     click.secho("\nLab CLI — Command Categories\n", fg="cyan", bold=True)
     for name, desc in categories.items():
