@@ -1,7 +1,11 @@
 """Model operations (HuggingFace, vLLM)."""
 
+import json
 import os
 import re
+import subprocess
+from urllib.request import urlopen, Request
+from urllib.error import URLError
 
 import click
 
@@ -321,9 +325,108 @@ def run_model(name, port, params, dtype, skip_check):
 
 
 @model.command()
+def stop():
+    """Find and kill running vLLM servers."""
+    try:
+        result = subprocess.run(
+            ["pgrep", "-af", "vllm"],
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        click.secho("pgrep not available", fg="red")
+        return
+
+    lines = [l for l in result.stdout.strip().split("\n") if l.strip()]
+    if not lines:
+        click.secho("No running vLLM processes found.", fg="green")
+        return
+
+    click.secho("\nRunning vLLM processes:\n", fg="cyan", bold=True)
+    for line in lines:
+        parts = line.split(None, 1)
+        pid = parts[0]
+        cmd = parts[1] if len(parts) > 1 else ""
+        click.secho(f"  [{pid}] {cmd}", fg="yellow")
+    click.echo()
+
+    if click.confirm("Kill all vLLM processes?"):
+        subprocess.run(["pkill", "-f", "vllm"], check=False)
+        click.secho("Killed.", fg="green")
+    else:
+        click.secho("Cancelled.", fg="yellow")
+
+
+@model.command()
+@click.option("--port", default=8000, help="vLLM server port (default: 8000)")
+def status(port):
+    """Check if vLLM is running, what model is loaded, and server health."""
+    # Check if process is running
+    try:
+        result = subprocess.run(
+            ["pgrep", "-af", "vllm"],
+            capture_output=True,
+            text=True,
+        )
+        procs = [l for l in result.stdout.strip().split("\n") if l.strip()]
+    except FileNotFoundError:
+        procs = []
+
+    click.secho("\nvLLM Server Status\n", fg="cyan", bold=True)
+
+    if not procs:
+        click.secho("  Process:  NOT RUNNING", fg="red")
+        click.secho("  Start one with: lab model run <name>\n", fg="yellow")
+        return
+
+    click.secho(f"  Process:  RUNNING ({len(procs)} process(es))", fg="green")
+
+    # Try to hit the API
+    try:
+        req = Request(f"http://localhost:{port}/v1/models")
+        with urlopen(req, timeout=3) as resp:
+            data = json.loads(resp.read())
+            models = data.get("data", [])
+            if models:
+                model_id = models[0]["id"]
+                click.secho(f"  Model:    {model_id}", fg="green")
+            else:
+                click.secho("  Model:    (none loaded)", fg="yellow")
+        click.secho(f"  API:      http://localhost:{port}/v1", fg="green")
+        click.secho(f"  Health:   OK", fg="green")
+    except (URLError, OSError):
+        click.secho(f"  API:      NOT RESPONDING on port {port}", fg="red")
+        click.secho("  Server may still be loading the model...", fg="yellow")
+
+    # Try to get metrics
+    try:
+        req = Request(f"http://localhost:{port}/metrics")
+        with urlopen(req, timeout=3) as resp:
+            metrics_text = resp.read().decode()
+            # Parse some useful metrics
+            for line in metrics_text.split("\n"):
+                if line.startswith("vllm:num_requests_running"):
+                    val = line.split()[-1]
+                    click.secho(f"  Active:   {val} request(s)", fg="white")
+                elif line.startswith("vllm:num_requests_total") or line.startswith("vllm:request_success_total"):
+                    # Different vLLM versions use different metric names
+                    val = line.split()[-1]
+                    click.secho(f"  Served:   {val} total request(s)", fg="white")
+    except (URLError, OSError):
+        pass  # metrics endpoint may not be available
+
+    click.echo()
+    click.secho("  Quick actions:", fg="white", dim=True)
+    click.secho("    lab ask <question>    — one-off question", fg="white", dim=True)
+    click.secho("    lab chat              — interactive conversation", fg="white", dim=True)
+    click.secho("    lab model stop        — kill the server", fg="white", dim=True)
+    click.echo()
+
+
+@model.command()
 @click.option("--port", default=8000, help="Port the model is served on (default: 8000)")
-def chat(port):
-    """Show how to query a running vLLM model."""
+def curl(port):
+    """Show a curl command to query a running vLLM model."""
     cmd = f"""curl http://localhost:{port}/v1/chat/completions \\
   -H "Content-Type: application/json" \\
   -d '{{
